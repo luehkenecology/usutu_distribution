@@ -53,14 +53,41 @@ state_map_ger <- maptools::readShapeSpatial("data/DEU_adm1.shp")
 crs(state_map_ger) <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0" 
 plot(state_map_ger)
 
+bio <- lapply(1:19, function(x) raster(paste("data/bio",x,"_16.tif",sep="")))
+bio_unlist <- stack(unlist(bio))
+bio_crop <- crop(bio_unlist, state_map_ger)
+bio_matrix <- as.matrix(bio_crop)
+bio_cor <- cor(bio_matrix, use = "pairwise.complete.obs")
 
-EURO1 = raster("D:/NeuAll/projects/reserach_projects/general_data/climate/Euro1.tif")
-EURO2 = raster("D:/NeuAll/projects/reserach_projects/general_data/climate/Euro2.tif")
-EURO3 = raster("D:/NeuAll/projects/reserach_projects/general_data/climate/Euro3.tif")
-EURO3_f <- stack(EURO1, EURO2, EURO3)
-EURO3_crop <- crop(EURO3_f, state_map_ger)
-EURO3_cropMatrix <- as.matrix(EURO3_crop)
-cor(EURO3_cropMatrix, use = "pairwise.complete.obs")
+eins <- corring(bio_cor)
+bio_cor_2 <- bio_cor[-eins, -eins]
+bio_matrix_2 <- bio_matrix[, -eins]
+
+zwei <- corring(bio_cor_2)
+bio_cor_3 <- bio_cor_2[-zwei, -zwei]
+bio_matrix_3 <- bio_matrix_2[, -zwei]
+
+drei <- corring(bio_cor_3)
+bio_cor_4 <- bio_cor_3[-drei, -drei]
+bio_matrix_4 <- bio_matrix_3[, -drei]
+
+vier <- corring(bio_cor_4)
+bio_cor_5 <- bio_cor_4[- vier, -vier]
+bio_matrix_4 <- bio_matrix_4[, -vier]
+
+fuenf <- corring(bio_cor_5)
+bio_cor_5 <- bio_cor_4[- vier, -vier]
+bio_matrix_4 <- bio_matrix_4[, -vier]
+
+corring <- function(x, threshold = 0.7) {
+  is.na(x) <- abs(x) < threshold
+  teta <- which.max(as.vector(apply(x, 1, function(x) length(which(!is.na(x))))))
+  tet <- as.vector(x[,which.max(as.vector(apply(x, 1, function(x) length(which(!is.na(x))))))])
+  tet2 <- which(!is.na(tet))
+  tet2[-which(tet2 == teta)]
+}
+
+bio_sub <- bio_crop[[c(1,3,7,8,9,12)]]
 
 #============================================================
 # modelling
@@ -81,7 +108,7 @@ FULL <- lapply(1:n_boot, function(x)
   rbind(data_set_all_pos_sub[[x]], 
         coordinates(bg_list[[x]])))
 
-data <- lapply(FULL, function(x) extract(EURO3_crop, x))
+data <- lapply(FULL, function(x) extract(bio_crop, x))
 
 weighting_list <- lapply(1:n_boot, 
                          function (x) c(rep(1, nrow(data_set_all_pos_sub[[x]])),
@@ -94,7 +121,6 @@ FULL_T <- lapply(1:n_boot, function(x)
   cbind(data[[x]], 
         PA[[x]]))
 
-FULL_T[[1]]
 # boosted regression trees
 t2 <- lapply(1:n_boot, function(x) try(gbm.step(data = data.frame(FULL_T[[x]]), 
                                                 gbm.x = c(1,2,3), 
@@ -148,63 +174,109 @@ write.table(all_data, "data/table.txt", sep="\t")
 ############################################################
 # validation
 ############################################################
-n_boot <- 2
-folds <- 10
+n_boot <- 15
+folds <- 5
 
-folds_pos <- lapply(1:n_boot, function(x) kfold(seq(1, nrow(xy_sub)), k = folds))
+bg_list <- replicate(n_boot, spsample(state_map_ger, 10000, type='random'))
+bg_list_coordinates <- lapply(bg_list, coordinates)
 
-train <- c(lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] == 1, ]),
-           lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] == 2, ]),
-           lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] == 3, ]),
-           lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] == 4, ]),
-           lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] == 5, ]),
-           lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] == 6, ]),
-           lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] == 7, ]),
-           lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] == 8, ]),
-           lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] == 9, ]),
-           lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] == 10, ]))
+fold_pos <- lapply(1:n_boot, function(x) kfold(seq(1, nrow(xy_sub)), k = folds))
+fold_neg <- lapply(1:n_boot, function(x) kfold(seq(1, nrow(bg_list_coordinates[[x]])), k = folds))
+data_set_all_pos <- xy_sub
+data_set_all_neg <- bg_list_coordinates
+
+train_pos <- c(lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] == 1, ]),
+               lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] == 2, ]),
+               lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] == 3, ]),
+               lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] == 4, ]),
+               lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] == 5, ]))
+               #lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] == 6, ]),
+               #lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] == 7, ]),
+               #lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] == 8, ]),
+               #lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] == 9, ]),
+               #lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] == 10, ]))
+train_neg <- c(lapply(1:n_boot, function(x) data_set_all_neg[[x]][fold_neg[[x]] == 1, ]),
+               lapply(1:n_boot, function(x) data_set_all_neg[[x]][fold_neg[[x]] == 2, ]),
+               lapply(1:n_boot, function(x) data_set_all_neg[[x]][fold_neg[[x]] == 3, ]),
+               lapply(1:n_boot, function(x) data_set_all_neg[[x]][fold_neg[[x]] == 4, ]),
+               lapply(1:n_boot, function(x) data_set_all_neg[[x]][fold_neg[[x]] == 5, ]))
+               #lapply(1:n_boot, function(x) data_set_all_neg[[x]][folds_neg[[x]] == 6, ]),
+               #lapply(1:n_boot, function(x) data_set_all_neg[[x]][folds_neg[[x]] == 7, ]),
+               #lapply(1:n_boot, function(x) data_set_all_neg[[x]][folds_neg[[x]] == 8, ]),
+               #lapply(1:n_boot, function(x) data_set_all_neg[[x]][folds_neg[[x]] == 9, ]),
+               #lapply(1:n_boot, function(x) data_set_all_neg[[x]][folds_neg[[x]] == 10, ]))
+train_full <- lapply(1:(n_boot*folds), function(x) rbind(train_pos[[x]], train_neg[[x]]))
+
+test_pos <- c(lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] != 1, ]),
+              lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] != 2, ]),
+              lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] != 3, ]),
+              lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] != 4, ]),
+              lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] != 5, ]))
+              #lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] != 6, ]),
+              #lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] != 7, ]),
+              #lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] != 8, ]),
+              #lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] != 9, ]),
+              #lapply(1:n_boot, function(x) data_set_all_pos[fold_pos[[x]] != 10, ]))
+test_neg <- c(lapply(1:n_boot, function(x) data_set_all_neg[[x]][fold_neg[[x]] != 1, ]),
+              lapply(1:n_boot, function(x) data_set_all_neg[[x]][fold_neg[[x]] != 2, ]),
+              lapply(1:n_boot, function(x) data_set_all_neg[[x]][fold_neg[[x]] != 3, ]),
+              lapply(1:n_boot, function(x) data_set_all_neg[[x]][fold_neg[[x]] != 4, ]),
+              lapply(1:n_boot, function(x) data_set_all_neg[[x]][fold_neg[[x]] != 5, ]))
+              #lapply(1:n_boot, function(x) data_set_all_neg[[x]][folds_neg[[x]] != 6, ]),
+              #lapply(1:n_boot, function(x) data_set_all_neg[[x]][folds_neg[[x]] != 7, ]),
+              #lapply(1:n_boot, function(x) data_set_all_neg[[x]][folds_neg[[x]] != 8, ]),
+              #lapply(1:n_boot, function(x) data_set_all_neg[[x]][folds_neg[[x]] != 9, ]),
+              #lapply(1:n_boot, function(x) data_set_all_neg[[x]][folds_neg[[x]] != 10, ]))
+test_full <- lapply(1:(n_boot*folds), function(x) rbind(test_pos[[x]], test_neg[[x]]))
+
+data_train <- lapply(train_full, function(x) extract(bio_sub, x))
 
 
-test <- c(lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] != 1, ]),
-          lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] != 2, ]),
-          lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] != 3, ]),
-          lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] != 4, ]),
-          lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] != 5, ]),
-          lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] != 6, ]),
-          lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] != 7, ]),
-          lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] != 8, ]),
-          lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] != 9, ]),
-          lapply(1:n_boot, function(x) xy_sub[folds_pos[[x]] != 10, ]))
+# fixed are the testing-presence points
+# sample the testing-absence (or testing-background) points
+# reference the training-presence points
+suppi <- lapply(1:(n_boot*folds), function(x) 
+  pwdSample(test_pos[[x]], test_neg[[x]], train_pos[[x]]))
 
-bg_list <- replicate(n_boot*folds, spsample(state_map_ger, 10000, type='random'))
+negativ_sub <- lapply(1:(n_boot*folds), function(x) test_neg[[x]][suppi[[x]], ])
+table(is.na(unlist(suppi)))
 
-FULL_train <- lapply(1:(n_boot*folds), function(x) 
-  rbind(train[[x]], 
-        coordinates(bg_list[[x]])))
+test_full <- lapply(1:(n_boot*folds), function(x) rbind(test_pos[[x]], negativ_sub[[x]]))
+data_test <- lapply(test_full, function(x) extract(bio_sub, x))
 
-data_train <- lapply(FULL_train, function(x) extract(EURO3_crop, x))
+weighting_list <- lapply(1:(n_boot*folds), function (x) c(rep(1, nrow(train_pos[[x]])),
+                                        rep(nrow(train_pos[[x]])/10000, nrow(train_neg[[x]]))))
 
-weighting_list <- lapply(1:(n_boot*folds), function (x) c(rep(1, nrow(train[[x]])),
-                                        rep(nrow(train[[x]])/10000, 10000)))
-
-PA_train <- lapply(data, function (x) c(rep(1, nrow(x)),
-                                      rep(0, 10000)))
+PA_train <- lapply(1:(n_boot*folds), function (x) c(rep(1, nrow(train_pos[[x]])),
+                                                    rep(0, nrow(train_neg[[x]]))))
 
 FULL_T <- lapply(1:(n_boot*folds), function(x) 
   cbind(data_train[[x]], 
         PA_train[[x]]))
 
+PA_test <- lapply(1:(n_boot*folds), function (x) c(rep(1, nrow(test_pos[[x]])),
+                                                    rep(0, nrow(test_pos[[x]]))))
+
+FULL_test <- lapply(1:(n_boot*folds), function(x) 
+  cbind(data_test[[x]], 
+        PA_test[[x]]))
+
 t2 <- lapply(1:(n_boot*folds), function(x) try(gbm.step(data = data.frame(FULL_T[[x]]), 
-                                                gbm.x = c(1,2,3), 
-                                                gbm.y = 4,
+                                                gbm.x = seq(1, ncol(FULL_T[[x]])-1), 
+                                                gbm.y = ncol(FULL_T[[x]]),
                                                 site.weights = weighting_list[[x]],
                                                 tree.complexity = 1,
                                                 learning.rate = 0.005, 
                                                 step.size = 10, 
                                                 n.folds=10)))
 
+t3 <- lapply(1:(n_boot*folds), function(x) as.vector(try(predict(t2[[x]],
+                                                                 na.omit(data.frame(FULL_test[[x]])),
+                                                                 n.trees = t2[[x]]$gbm.call$best.trees,
+                                                                 type = "response"))))
 
-pred_new <- lapply(1:(folds*n_boot), function(x) try(prediction(t3[[x]], FULL_T[[x]]$PA)))
+pred_new <- lapply(1:(folds*n_boot), function(x) try(prediction(t3[[x]], na.omit(FULL_test[[x]])[,7])))
+
 
 pred_ff <- lapply(pred_new, function(x) try(performance(x, "auc")@y.values[[1]]))
 
@@ -212,3 +284,78 @@ pred_ff <- lapply(pred_new, function(x) try(performance(x, "auc")@y.values[[1]])
 xg <- split(unlist(pred_ff), unlist(lapply(1:n_boot, function(x) rep(x, folds))))
 mean(unlist(lapply(xg, function(x) mean(as.numeric(x), na.rm = T))))
 sd(unlist(lapply(xg, function(x) sd(as.numeric(x), na.rm = T))))
+
+
+
+
+
+ref <- matrix(c(-54.5,-38.5, 2.5, -9.5, -45.5, 1.5, 9.5, 4.5, -10.5, -10.5), ncol=2)
+fix <- matrix(c(-56.5, -30.5, -6.5, 14.5, -25.5, -48.5, 14.5, -2.5, 14.5,
+                -11.5, -17.5, -11.5), ncol=2)
+r <- raster()
+extent(r) <- c(-110, 110, -45, 45)
+r[] <- 1
+set.seed(0)
+sam <- randomPoints(r, n=50)
+
+par(mfrow=c(1,2))
+plot(sam, pch='x')
+points(ref, col='red', pch=18, cex=2)
+points(fix, col='blue', pch=20, cex=2)
+
+i <- pwdSample(fix, sam, ref, lonlat=TRUE)
+i
+sfix <- fix[!is.na(i), ]
+ssam <- sam[i[!is.na(i)], ]
+ssam
+
+plot(sam, pch='x', cex=0)
+points(ssam, pch='x')
+points(ref, col='red', pch=18, cex=2)
+points(sfix, col='blue', pch=20, cex=2)
+
+# try to get 3 pairs for each point in 'fixed'
+pwdSample(fix, sam, ref)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ref <- matrix(c(-54.5,-38.5, 2.5, -9.5, -45.5, 1.5, 9.5, 4.5, -10.5, -10.5), ncol=2)
+fix <- matrix(c(-56.5, -30.5, -6.5, 14.5, -25.5, -48.5, 14.5, -2.5, 14.5,
+                -11.5, -17.5, -11.5), ncol=2)
+r <- raster()
+extent(r) <- c(-110, 110, -45, 45)
+r[] <- 1
+set.seed(0)
+sam <- randomPoints(r, n=50)
+
+par(mfrow=c(1,2))
+plot(sam, pch='x')
+points(ref, col='red', pch=18, cex=2)
+points(fix, col='blue', pch=20, cex=2)
+
+i <- pwdSample(fix, sam, ref, lonlat=TRUE)
+i
+sfix <- fix[!is.na(i), ]
+ssam <- sam[i[!is.na(i)], ]
+ssam
+
+plot(sam, pch='x', cex=0)
+points(ssam, pch='x')
+points(ref, col='red', pch=18, cex=2)
+points(sfix, col='blue', pch=20, cex=2)
+
+# try to get 3 pairs for each point in 'fixed'
+pwdSample(fix, sam, ref, lonlat=TRUE, n=3)
